@@ -27,6 +27,8 @@ let explains = {};       // paper id -> [{q, a, ctx, state}]
 let occ = {};            // ref number -> anchor ids
 let progressChars = {};
 let settings = { prov: 'codex', model: '', hasKey: false, keyHint: '' };
+let folders = [];          // [{ id, name }]
+let folderId = null;       // folder being viewed (view === 'folder')
 
 /* ---------- toast ---------- */
 function toast(m) {
@@ -44,17 +46,31 @@ function allEntries() {
   return list;
 }
 function readFraction(id) { return store.get('sr-pos-' + id, 0); }
+const folderIdsOf = (x) => {
+  const ids = x.sample ? store.get('sr-sample-folders', []) : x.folders || [];
+  return ids.filter((id) => folders.some((f) => f.id === id));
+};
+async function setFoldersOf(x, ids) {
+  if (x.sample) { store.set('sr-sample-folders', ids); renderFolders(); renderLib(); return true; }
+  const r = await API.setPaperFolders(x.id, ids);
+  if (!r.ok) toast(r.error);
+  return r.ok;
+}
 
 function renderLib() {
   const q = $('#libQ').value.trim().toLowerCase();
   let list = allEntries().filter((x) => !q || (x.title + ' ' + (x.authors || '')).toLowerCase().includes(q));
+  const folder = view === 'folder' && folders.find((f) => f.id === folderId);
   if (view === 'recent') list = list.filter((x) => x.openedAt).sort((a, b) => b.openedAt - a.openedAt);
-  $('#libTitle').textContent = view === 'recent' ? '最近阅读' : '文献库';
+  if (folder) list = list.filter((x) => folderIdsOf(x).includes(folder.id));
+  $('#libTitle').textContent = folder ? folder.name : view === 'recent' ? '最近阅读' : '文献库';
   $('#libSub').textContent = `共 ${list.length} 篇文章。`;
   $('#nAll').textContent = allEntries().length || '';
   const grid = $('#grid');
   if (!list.length) {
-    grid.innerHTML = view === 'recent' && !q
+    grid.innerHTML = folder && !q
+      ? '<div class="emptylib">这个文件夹还是空的。<br>把文献卡片拖到左边的文件夹上，或者点卡片上的“文件夹”按钮。<br>在这里点“添加文章”导入的 PDF 会直接放进这个文件夹。</div>'
+      : view === 'recent' && !q
       ? '<div class="emptylib">还没有读过的文章。</div>'
       : '<div class="emptylib">没有找到文章。<br>点右上角“添加文章”，或者直接把 PDF 拖进窗口。</div>';
     return;
@@ -68,10 +84,13 @@ function renderLib() {
       status = `<div class="status err"><div>处理失败</div><div class="small">${esc(x.error)}</div><span class="mini" data-retry="${esc(x.id)}" role="button" tabindex="0">重试</span></div>`;
     }
     const pct = Math.round(readFraction(x.id) * 100);
-    return `<div class="card" data-id="${esc(x.id)}" role="button" tabindex="0">
+    const tags = folderIdsOf(x).map((id) => folders.find((f) => f.id === id)).filter(Boolean)
+      .map((f) => `<span class="ftag" title="${esc(f.name)}">${esc(f.name)}</span>`).join('');
+    return `<div class="card" data-id="${esc(x.id)}" role="button" tabindex="0" draggable="true">
       <div class="thumb"><div class="sheet"><b>${esc(x.title)}</b><i></i><i></i><i class="s"></i><i></i><i></i><i></i></div><span class="prog" style="width:${pct}%"></span>${status}</div>
       <div class="card-b"><div class="t">${esc(x.title)}</div><div class="a">${x.authors ? '作者：' + esc(x.authors) : esc(x.fileName || '')}</div>
-      <span class="tag ${x.sample ? 'new' : ''}">${x.sample ? '示例' : pct ? `已读 ${pct}%` : '未读'}</span></div>
+      <span class="tag ${x.sample ? 'new' : ''}">${x.sample ? '示例' : pct ? `已读 ${pct}%` : '未读'}</span>${tags ? `<div class="ftags">${tags}</div>` : ''}</div>
+      <button class="fold" data-fold="${esc(x.id)}" aria-label="放进文件夹">文件夹</button>
       <button class="del" data-del="${esc(x.id)}" aria-label="删除">×</button></div>`;
   }).join('');
 }
@@ -86,6 +105,8 @@ async function refreshLibrary(list) {
 }
 
 $('#grid').addEventListener('click', async (e) => {
+  const fold = e.target.closest('[data-fold]');
+  if (fold) { e.stopPropagation(); openFolderPop(fold.dataset.fold, fold); return; }
   const del = e.target.closest('[data-del]');
   if (del) {
     e.stopPropagation();
@@ -113,9 +134,161 @@ function show(v) {
   $('#app').classList.toggle('lib', !reading);
   $('#libView').hidden = reading; $('#scroll').hidden = !reading; $('#topbar').hidden = !reading;
   $('#pop').hidden = true;
+  $('#fpop').hidden = true;
   $$('.nav[data-go]').forEach((n) => n.classList.toggle('on', !reading && n.dataset.go === v));
+  if (v !== 'folder') folderId = null;
+  renderFolders();
   if (!reading) { current = null; renderLib(); }
 }
+
+/* ---------- folders ---------- */
+function renderFolders() {
+  const counts = {};
+  for (const x of allEntries()) for (const id of folderIdsOf(x)) counts[id] = (counts[id] || 0) + 1;
+  const nav = $('#folderNav');
+  if (!folders.length) { nav.innerHTML = '<div class="fempty">按项目建文件夹来整理论文。点上面的 ＋ 新建。</div>'; return; }
+  nav.innerHTML = folders.map((f) => `<div class="fitem" data-fid="${esc(f.id)}">
+    <button class="nav ${view === 'folder' && folderId === f.id ? 'on' : ''}" data-open-folder="${esc(f.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z"/></svg><span class="fname">${esc(f.name)}</span><span class="n">${counts[f.id] || ''}</span></button>
+    <span class="facts"><button data-rename="${esc(f.id)}" aria-label="重命名" title="重命名">✎</button><button data-fdel="${esc(f.id)}" aria-label="删除文件夹" title="删除文件夹">×</button></span></div>`).join('');
+}
+async function loadFolders(list) {
+  folders = list || (await API.listFolders());
+  if (view === 'folder' && !folders.some((f) => f.id === folderId)) { show('lib'); return; }
+  renderFolders();
+  if (view !== 'read') renderLib();
+  if (!$('#fpop').hidden && fpopFor) renderFolderPop();
+}
+$('#addFolder').onclick = () => {
+  const form = $('#newFolderForm');
+  form.hidden = !form.hidden;
+  if (!form.hidden) { $('#newFolderName').value = ''; $('#newFolderName').focus(); }
+};
+$('#newFolderForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const name = $('#newFolderName').value.trim();
+  if (!name) { $('#newFolderForm').hidden = true; return; }
+  const r = await API.createFolder(name);
+  if (!r.ok) { toast(r.error); return; }
+  $('#newFolderForm').hidden = true;
+  toast(`已新建文件夹“${r.value.name}”`);
+};
+$('#newFolderName').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); $('#newFolderForm').hidden = true; } });
+$('#newFolderName').addEventListener('blur', () => setTimeout(() => { if (!$('#newFolderName').value.trim()) $('#newFolderForm').hidden = true; }, 150));
+
+$('#folderNav').addEventListener('click', async (e) => {
+  const open = e.target.closest('[data-open-folder]');
+  const ren = e.target.closest('[data-rename]');
+  const del = e.target.closest('[data-fdel]');
+  if (ren) {
+    const f = folders.find((x) => x.id === ren.dataset.rename);
+    const item = ren.closest('.fitem');
+    item.innerHTML = `<input class="frename" maxlength="60" aria-label="新名称">`;
+    const input = item.querySelector('input');
+    input.value = f.name; input.focus(); input.select();
+    let done = false;
+    const finish = async (save) => {
+      if (done) return; done = true;
+      const name = input.value.trim();
+      if (save && name && name !== f.name) { const r = await API.renameFolder(f.id, name); if (!r.ok) toast(r.error); }
+      renderFolders(); renderLib();
+    };
+    input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') finish(true); if (ev.key === 'Escape') { ev.stopPropagation(); finish(false); } });
+    input.addEventListener('blur', () => finish(true));
+    return;
+  }
+  if (del) {
+    if (!del.classList.contains('confirm')) {
+      del.classList.add('confirm'); del.textContent = '删除？';
+      setTimeout(() => renderFolders(), 3000);
+      return;
+    }
+    const id = del.dataset.fdel;
+    const sampleIds = store.get('sr-sample-folders', []);
+    if (sampleIds.includes(id)) store.set('sr-sample-folders', sampleIds.filter((x) => x !== id));
+    const r = await API.deleteFolder(id);
+    if (!r.ok) toast(r.error); else toast('已删除文件夹，里面的论文还在文献库里');
+    return;
+  }
+  if (open) { folderId = open.dataset.openFolder; show('folder'); }
+});
+
+// Drag a card onto a folder in the sidebar to add it there.
+$('#grid').addEventListener('dragstart', (e) => {
+  const card = e.target.closest('.card');
+  if (!card) return;
+  e.dataTransfer.setData('text/x-paper', card.dataset.id);
+  e.dataTransfer.effectAllowed = 'copy';
+  card.classList.add('dragging');
+});
+$('#grid').addEventListener('dragend', (e) => { const c = e.target.closest('.card'); if (c) c.classList.remove('dragging'); });
+$('#folderNav').addEventListener('dragover', (e) => {
+  const item = e.target.closest('.fitem');
+  if (!item || ![...e.dataTransfer.types].includes('text/x-paper')) return;
+  e.preventDefault(); e.stopPropagation();
+  $$('.fitem.droptarget').forEach((x) => x !== item && x.classList.remove('droptarget'));
+  item.classList.add('droptarget');
+});
+$('#folderNav').addEventListener('dragleave', (e) => { const item = e.target.closest('.fitem'); if (item && !item.contains(e.relatedTarget)) item.classList.remove('droptarget'); });
+$('#folderNav').addEventListener('drop', async (e) => {
+  const item = e.target.closest('.fitem');
+  const pid = e.dataTransfer.getData('text/x-paper');
+  $$('.fitem.droptarget').forEach((x) => x.classList.remove('droptarget'));
+  if (!item || !pid) return;
+  e.preventDefault(); e.stopPropagation();
+  const x = allEntries().find((p) => p.id === pid);
+  const fid = item.dataset.fid, f = folders.find((y) => y.id === fid);
+  if (!x || !f) return;
+  const ids = folderIdsOf(x);
+  if (ids.includes(fid)) { toast(`已经在“${f.name}”里了`); return; }
+  if (await setFoldersOf(x, [...ids, fid])) toast(`已放进“${f.name}”`);
+});
+
+// Checkbox popover: put one paper into any number of folders.
+let fpopFor = null;
+function openFolderPop(paperId, anchor) {
+  const pop = $('#fpop');
+  if (!pop.hidden && fpopFor === paperId) { pop.hidden = true; return; }
+  fpopFor = paperId;
+  renderFolderPop();
+  pop.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + 'px';
+  pop.style.top = (r.bottom + 6 + h > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6) + 'px';
+}
+function renderFolderPop() {
+  const x = allEntries().find((p) => p.id === fpopFor);
+  if (!x) { $('#fpop').hidden = true; return; }
+  const ids = folderIdsOf(x);
+  $('#fpop').innerHTML = `<h4>放进文件夹（可多选）</h4><div class="flist">${folders.length ? folders.map((f) => `<label><input type="checkbox" data-fcheck="${esc(f.id)}" ${ids.includes(f.id) ? 'checked' : ''}><span>${esc(f.name)}</span></label>`).join('') : '<div class="none">还没有文件夹。</div>'}</div>
+    <form id="fpopNew"><input type="text" id="fpopNewName" maxlength="60" placeholder="＋ 新建文件夹并放进去" aria-label="新建文件夹" autocomplete="off"></form>`;
+}
+$('#fpop').addEventListener('change', async (e) => {
+  const cb = e.target.closest('[data-fcheck]');
+  if (!cb) return;
+  const x = allEntries().find((p) => p.id === fpopFor);
+  if (!x) return;
+  const ids = new Set(folderIdsOf(x));
+  if (cb.checked) ids.add(cb.dataset.fcheck); else ids.delete(cb.dataset.fcheck);
+  if (!(await setFoldersOf(x, [...ids]))) cb.checked = !cb.checked;
+});
+$('#fpop').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = $('#fpopNewName').value.trim();
+  if (!name) return;
+  const r = await API.createFolder(name);
+  if (!r.ok) { toast(r.error); return; }
+  folders = await API.listFolders();
+  const x = allEntries().find((p) => p.id === fpopFor);
+  if (x) await setFoldersOf(x, [...folderIdsOf(x), r.value.id]);
+  renderFolderPop();
+  $('#fpopNewName').focus();
+});
+document.addEventListener('mousedown', (e) => {
+  const pop = $('#fpop');
+  if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('[data-fold],#readerFolderBtn')) pop.hidden = true;
+});
+$('#readerFolderBtn').onclick = (e) => { if (current) openFolderPop(current.id, e.currentTarget); };
 
 /* ---------- reader ---------- */
 async function openPaper(id) {
@@ -304,7 +477,7 @@ $('#popCopy').onclick = async () => {
 /* ---------- import ---------- */
 $('#importBtn').onclick = async () => {
   if (!aiReady()) { toast('请先在设置里连接 AI'); openSettings(); return; }
-  const n = await API.importPdf();
+  const n = await API.importPdf(view === 'folder' && folderId ? [folderId] : []);
   if (n) toast(`已添加 ${n} 篇，AI 正在处理`);
 };
 let dragDepth = 0;
@@ -313,11 +486,12 @@ window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth -
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', async (e) => {
   e.preventDefault(); dragDepth = 0; $('#droppad').hidden = true;
+  if (![...e.dataTransfer.types].includes('Files')) return; // a card dropped outside a folder
   const files = [...(e.dataTransfer.files || [])].filter((f) => /\.pdf$/i.test(f.name));
   if (!files.length) { toast('只支持 PDF 文件'); return; }
   if (!aiReady()) { toast('请先在设置里连接 AI'); openSettings(); return; }
-  const n = await API.importFiles(files);
-  if (n) { show('lib'); toast(`已添加 ${n} 篇，AI 正在处理`); }
+  const n = await API.importFiles(files, view === 'folder' && folderId ? [folderId] : []);
+  if (n) { if (view === 'read') show('lib'); toast(`已添加 ${n} 篇，AI 正在处理`); }
 });
 
 /* ---------- settings ---------- */
@@ -396,15 +570,21 @@ $('#libQ').addEventListener('input', renderLib);
 $('#backBtn').onclick = () => show('lib');
 $('#pdfBtn').onclick = () => current && API.showPdf(current.id);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { if (!$('#veil').hidden) $('#veil').hidden = true; else if (view === 'read') show('lib'); }
+  if (e.key === 'Escape') {
+    if (!$('#veil').hidden) $('#veil').hidden = true;
+    else if (!$('#fpop').hidden) $('#fpop').hidden = true;
+    else if (view === 'read') show('lib');
+  }
 });
 
-api.onLibrary((list) => refreshLibrary(list));
-api.onProgress(({ id, chars }) => { progressChars[id] = chars; if (view !== 'read') renderLib(); });
+API.onLibrary((list) => { refreshLibrary(list); renderFolders(); if (!$('#fpop').hidden) renderFolderPop(); });
+API.onFolders((list) => loadFolders(list));
+API.onProgress(({ id, chars }) => { progressChars[id] = chars; if (view !== 'read') renderLib(); });
 
 (async () => {
   settings = await API.getSettings();
   showProv();
+  folders = await API.listFolders();
   await refreshLibrary();
   show('lib');
   checkCodex();

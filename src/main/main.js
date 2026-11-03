@@ -11,6 +11,7 @@ function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 function broadcastLibrary() { send('library:changed', store.list()); }
+function broadcastFolders() { send('folders:changed', store.folders()); }
 
 async function processPaper(id) {
   if (running.has(id)) return;
@@ -35,10 +36,10 @@ async function processPaper(id) {
   }
 }
 
-function importPaths(paths) {
+function importPaths(paths, folderIds = []) {
   const pdfs = paths.filter((p) => /\.pdf$/i.test(p));
   for (const p of pdfs) {
-    const entry = store.addPdf(p);
+    const entry = store.addPdf(p, folderIds);
     processPaper(entry.id);
   }
   broadcastLibrary();
@@ -76,14 +77,22 @@ app.whenReady().then(() => {
   store.markInterrupted();
 
   ipcMain.handle('library:list', () => store.list());
-  ipcMain.handle('library:import', async () => {
+  ipcMain.handle('library:import', async (_e, folderIds) => {
     const r = await dialog.showOpenDialog(win, { title: '添加文章', properties: ['openFile', 'multiSelections'], filters: [{ name: 'PDF', extensions: ['pdf'] }] });
-    return r.canceled ? 0 : importPaths(r.filePaths);
+    return r.canceled ? 0 : importPaths(r.filePaths, folderIds);
   });
-  ipcMain.handle('library:importPaths', (_e, paths) => importPaths(Array.isArray(paths) ? paths : []));
+  ipcMain.handle('library:importPaths', (_e, paths, folderIds) => importPaths(Array.isArray(paths) ? paths : [], folderIds));
+  const folderCall = (fn) => async (...args) => {
+    try { const value = fn(...args); broadcastFolders(); broadcastLibrary(); return { ok: true, value }; } catch (err) { return { ok: false, error: err.message }; }
+  };
+  ipcMain.handle('folders:list', () => store.folders());
+  ipcMain.handle('folders:create', folderCall((_e, name) => store.createFolder(name)));
+  ipcMain.handle('folders:rename', folderCall((_e, id, name) => store.renameFolder(id, name)));
+  ipcMain.handle('folders:delete', folderCall((_e, id) => store.deleteFolder(id)));
+  ipcMain.handle('library:setFolders', folderCall((_e, id, ids) => store.setPaperFolders(id, ids)));
   ipcMain.handle('library:retry', (_e, id) => { processPaper(id); return true; });
   ipcMain.handle('library:remove', (_e, id) => { if (!running.has(id)) { store.remove(id); broadcastLibrary(); } return true; });
-  ipcMain.handle('library:touch', (_e, id, patch) => { store.update(id, { ...patch }); return true; });
+  ipcMain.handle('library:touch', (_e, id, patch) => { const t = Number(patch && patch.openedAt); if (t > 0) store.update(id, { openedAt: t }); return true; });
   ipcMain.handle('paper:get', (_e, id) => store.readData(id));
   ipcMain.handle('paper:showPdf', (_e, id) => shell.openPath(store.pdfPath(id)));
 

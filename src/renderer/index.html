@@ -15,6 +15,9 @@
     <button class="nav on" data-go="lib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 3.5h4a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 0-1.5-1.5h-4zM13.5 3.5h-4A1.5 1.5 0 0 0 8 5v8a1.5 1.5 0 0 1 1.5-1.5h4z"/></svg>文献库<span class="n" id="nAll"></span></button>
     <button class="nav" data-go="recent"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/></svg>最近阅读</button>
     <button class="nav" id="searchNav"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>搜索</button>
+    <div class="grp grp-row"><span>文件夹</span><button class="grp-add" id="addFolder" aria-label="新建文件夹" title="新建文件夹">＋</button></div>
+    <form class="folder-form" id="newFolderForm" hidden><input id="newFolderName" maxlength="60" placeholder="文件夹名称，按回车创建" aria-label="新文件夹名称" autocomplete="off"></form>
+    <div id="folderNav" class="folder-nav"></div>
     <div class="spacer"></div>
     <button class="prov" id="provBtn"><span class="dot" id="provDot"></span><span id="provText">未设置 AI</span></button>
   </aside>
@@ -27,6 +30,7 @@
         <button data-mode="en">原文</button>
         <button data-mode="zh">译文</button>
       </div>
+      <button class="icon-btn" id="readerFolderBtn">文件夹</button>
       <button class="icon-btn" id="pdfBtn">打开 PDF</button>
       <button class="icon-btn" id="settingsBtn">设置</button>
     </div>
@@ -55,6 +59,7 @@
   </aside>
 </div>
 
+<div class="fpop" id="fpop" hidden role="dialog" aria-label="放进文件夹"></div>
 <div class="pop" id="pop" hidden><button id="popExplain">解释</button><button id="popCopy">复制</button></div>
 <div class="droppad" id="droppad" hidden>松开鼠标，导入 PDF</div>
 

@@ -200,3 +200,35 @@ button,input,select,a,.card{-webkit-app-region:no-drag}
 
 .search,.field input,.field select,.lib-search{box-sizing:border-box}
 .pbody{overflow-x:hidden}
+
+/* ---- folders ---- */
+.grp-row{display:flex;align-items:center;justify-content:space-between;padding-right:4px}
+.grp-add{width:22px;height:22px;border-radius:5px;color:var(--muted);font-size:14px;line-height:1}
+.grp-add:hover{background:var(--hover);color:var(--fg)}
+.folder-form{padding:2px 4px 4px}
+.folder-form input,.frename{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--accent);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:14px;outline:none}
+.folder-nav{display:flex;flex-direction:column;gap:2px}
+.fitem{position:relative;display:flex;align-items:center;border-radius:7px}
+.fitem .nav{padding-right:56px}
+.fitem .nav .fname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fitem.droptarget{outline:2px solid var(--accent);background:var(--accent-soft)}
+.fitem .facts{position:absolute;right:4px;display:none;gap:2px}
+.fitem:hover .facts,.fitem:focus-within .facts{display:flex}
+.fitem:hover .nav .n,.fitem:focus-within .nav .n{visibility:hidden}
+.facts button{width:22px;height:22px;border-radius:5px;color:var(--muted);font-size:12px}
+.facts button:hover{background:var(--active);color:var(--fg)}
+.facts button.confirm{width:auto;padding:0 6px;color:#c4453c}
+.fempty{font-size:12.5px;color:var(--faint);padding:4px 10px 8px;line-height:1.6}
+.card .fold{position:absolute;top:8px;right:40px;height:26px;padding:0 8px;border-radius:6px;background:var(--card);color:var(--muted);box-shadow:var(--shadow);opacity:0;transition:opacity .15s;font-size:12px}
+.card:hover .fold,.card .fold:focus-visible{opacity:1}
+.card.dragging{opacity:.5}
+.ftags{display:flex;flex-wrap:wrap;gap:4px}
+.ftag{font-size:11.5px;color:var(--accent);background:var(--accent-soft);padding:1px 7px;border-radius:5px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fpop{position:fixed;z-index:25;width:240px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:8px}
+.fpop h4{margin:2px 6px 6px;font-size:12px;font-weight:500;color:var(--muted)}
+.fpop label{display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;font-size:13.5px;cursor:pointer}
+.fpop label:hover{background:var(--hover)}
+.fpop label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fpop .flist{max-height:240px;overflow:auto}
+.fpop input[type=text]{width:100%;box-sizing:border-box;margin-top:6px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:13px}
+.fpop .none{font-size:12.5px;color:var(--faint);padding:4px 6px}

@@ -7,6 +7,7 @@ A Scholaread-style academic paper reader. UI-first: the reading experience comes
 ## 功能 / Features
 
 - 文献库：拖入或点“添加文章”导入 PDF，卡片显示阅读进度
+- 文件夹：按项目建文件夹，一篇论文可以同时放进多个文件夹；把卡片拖到左侧文件夹上，或点卡片上的“文件夹”按钮勾选；在文件夹里导入的 PDF 会直接放进该文件夹；删除文件夹不会删除论文
 - 逐段对照阅读：每段原文下面是中文译文，可切换“对照 / 原文 / 译文”
 - AI 排版和翻译：整篇论文一次交给同一个模型，修复 PDF 断行、分栏，按章节重新排版
 - AI 总结：一句话总结、研究问题、方法、结果、局限
@@ -43,7 +44,7 @@ codex login               # 在浏览器里用 ChatGPT 账号登录
 
 ## 数据存放位置
 
-`~/Library/Application Support/scholareader/`：`library.json`（文献列表）、`papers/`（PDF 和 AI 结果）、`settings.json`。
+`~/Library/Application Support/scholareader/`：`library.json`（文献列表）、`folders.json`（文件夹）、`papers/`（PDF 和 AI 结果）、`settings.json`。
 
 ## 开发 / Development
 
