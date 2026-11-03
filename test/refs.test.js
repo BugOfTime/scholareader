@@ -101,3 +101,18 @@ test('DBLP finds conference papers when OpenAlex and Semantic Scholar refuse', a
   assert.strictEqual(refs[0].url_source, 'dblp');
   assert.ok(refs[0].url.startsWith('https://proceedings.neurips.cc/'));
 });
+
+test('an OpenAlex key is sent when set, and a DBLP bot check counts as unreachable', async () => {
+  const urls = [];
+  const fetchFn = async (url) => {
+    urls.push(url);
+    if (url.includes('dblp')) return { ok: true, status: 202, json: async () => { throw new Error('html'); } };
+    if (url.includes('openalex')) return json({ results: [] });
+    return json({ message: { items: [] }, data: [] });
+  };
+  const refs = [{ n: 1, text: 'Some Real Looking Title. 2020.', title: 'Some Real Looking Title', url: '' }];
+  const { unreachable } = await resolveReferences(refs, { fetchFn, s2GapMs: 5, keys: { openalex: 'k&1' } });
+  assert.ok(urls.some((u) => u.includes('openalex') && u.endsWith('&api_key=k%261')));
+  assert.strictEqual(unreachable, 1);
+  assert.strictEqual(refs[0].lookup, undefined);
+});

@@ -52,6 +52,7 @@ async function lookupRefs(id) {
   try {
     ({ unreachable } = await refs.resolveReferences(paper.references, {
       fetchFn: (url, opts) => net.fetch(url, opts),
+      keys: { openalex: store.getSettings().openalexKey },
       // Tests point these at a local mock server.
       bases: { crossref: process.env.SCHOLAREADER_CROSSREF_URL || 'https://api.crossref.org', dblp: process.env.SCHOLAREADER_DBLP_URL || 'https://dblp.org', openalex: process.env.SCHOLAREADER_OPENALEX_URL || 'https://api.openalex.org', s2: process.env.SCHOLAREADER_S2_URL || 'https://api.semanticscholar.org' },
       onProgress: (done, total) => send('paper:refs', { id, state: 'progress', done, total }),
@@ -137,13 +138,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle('settings:get', () => {
     const s = store.getSettings();
-    return { prov: s.prov, model: s.model, hasKey: !!s.key, keyHint: s.key ? `…${s.key.slice(-4)}` : '' };
+    return { prov: s.prov, model: s.model, hasKey: !!s.key, keyHint: s.key ? `…${s.key.slice(-4)}` : '', openalexKey: s.openalexKey };
   });
   ipcMain.handle('settings:set', (_e, s) => {
     const cur = store.getSettings();
     const key = s.key === undefined ? cur.key : String(s.key).trim();
     const prov = ['codex', 'claude', 'openai'].includes(s.prov) ? s.prov : cur.prov;
-    store.setSettings({ prov, model: String(s.model ?? '').trim(), key, codexPath: cur.codexPath });
+    const openalexKey = s.openalexKey === undefined ? cur.openalexKey : String(s.openalexKey).trim();
+    store.setSettings({ prov, model: String(s.model ?? '').trim(), key, codexPath: cur.codexPath, openalexKey });
+    if (openalexKey !== cur.openalexKey) triedOnOpen.clear(); // a new key: look up again when papers are opened
     return true;
   });
   ipcMain.handle('codex:status', () => codex.status(store.getSettings().codexPath));

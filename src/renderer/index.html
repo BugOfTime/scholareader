@@ -86,6 +86,9 @@
     <div class="field" id="keyField"><label for="apikey">API Key</label><input id="apikey" type="password" autocomplete="off">
       <span class="note" id="keyNote">Key 只保存在这台电脑上，用系统钥匙串加密。</span>
     </div>
+    <div class="field"><label for="oaKey">OpenAlex Key（可选）</label><input id="oaKey" autocomplete="off" placeholder="留空也能用">
+      <span class="note">用来给参考文献查原文链接。走 VPN 时免费额度常被同一出口的其他人用完，在 openalex.org 免费注册一个 Key 填这里就不受影响。</span>
+    </div>
     <div class="row"><span class="testres" id="testRes"></span><button type="button" class="btn" id="testBtn">测试连接</button><button type="button" class="btn" id="cancelBtn">取消</button><button type="submit" class="btn primary">保存</button></div>
   </form>
 </div>

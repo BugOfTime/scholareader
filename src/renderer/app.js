@@ -566,8 +566,9 @@ $('#codexLogin').onclick = async () => {
 function formValues() {
   const prov = $('#provOpenai').checked ? 'openai' : $('#provClaude').checked ? 'claude' : 'codex';
   const key = $('#apikey').value.trim();
-  if (prov === 'codex') return { prov, model: $('#model').value.trim(), key: undefined };
-  return { prov, model: $('#model').value.trim() || MODELS[prov][0], key: key || (settings.hasKey && prov === settings.prov ? undefined : '') };
+  const openalexKey = $('#oaKey').value.trim();
+  if (prov === 'codex') return { prov, model: $('#model').value.trim(), key: undefined, openalexKey };
+  return { prov, model: $('#model').value.trim() || MODELS[prov][0], key: key || (settings.hasKey && prov === settings.prov ? undefined : ''), openalexKey };
 }
 function openSettings() {
   $('#provCodex').checked = settings.prov === 'codex';
@@ -575,6 +576,7 @@ function openSettings() {
   $('#provOpenai').checked = settings.prov === 'openai';
   $('#model').value = settings.model;
   $('#apikey').value = '';
+  $('#oaKey').value = settings.openalexKey || '';
   $('#testRes').textContent = '';
   fillModels(settings.prov);
   $('#veil').hidden = false;

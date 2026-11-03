@@ -111,10 +111,10 @@ class Store {
     const s = this.readJSON(this.settingsFile, {});
     const prov = ['codex', 'claude', 'openai'].includes(s.prov) ? s.prov : 'codex';
     const model = typeof s.model === 'string' ? s.model : prov === 'claude' ? 'claude-opus-5-5' : '';
-    return { prov, model, key: this.readKey(), codexPath: s.codexPath || '' };
+    return { prov, model, key: this.readKey(), codexPath: s.codexPath || '', openalexKey: typeof s.openalexKey === 'string' ? s.openalexKey : '' };
   }
-  setSettings({ prov, model, key, codexPath }) {
-    this.writeJSON(this.settingsFile, { prov, model, codexPath: codexPath || '' });
+  setSettings({ prov, model, key, codexPath, openalexKey }) {
+    this.writeJSON(this.settingsFile, { prov, model, codexPath: codexPath || '', openalexKey: openalexKey || '' });
     this.writeKey(key || '');
   }
   readKey() {

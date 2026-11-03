@@ -41,7 +41,8 @@ async function getJSON(fetchFn, url, timeoutMs) {
   try {
     const r = await fetchFn(url, { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: ctrl.signal });
     if (r.status === 404) return null;
-    if (!r.ok) {
+    // DBLP answers 202 with an HTML bot check from some VPN addresses: treat it as unreachable.
+    if (!r.ok || r.status === 202) {
       const err = new Error(`HTTP ${r.status}`);
       err.status = r.status;
       err.retryAfter = Number(r.headers && r.headers.get && r.headers.get('retry-after')) || 0;
@@ -79,9 +80,10 @@ async function dblp(fetchFn, ref, timeoutMs, bases, queues) {
   return null;
 }
 
-async function openAlex(fetchFn, ref, timeoutMs, bases) {
+async function openAlex(fetchFn, ref, timeoutMs, bases, _queues, _gap, keys) {
   const q = encodeURIComponent(ref.title.slice(0, 300).replace(/[,:|]/g, ' '));
-  const j = await getJSON(fetchFn, `${bases.openalex}/works?search=${q}&per-page=3&select=display_name,doi,ids,primary_location`, timeoutMs);
+  const key = keys.openalex ? `&api_key=${encodeURIComponent(keys.openalex)}` : '';
+  const j = await getJSON(fetchFn, `${bases.openalex}/works?search=${q}&per-page=3&select=display_name,doi,ids,primary_location${key}`, timeoutMs);
   for (const it of (j && j.results) || []) {
     if (titleMatch(it.display_name, ref.title) < GOOD) continue;
     if (it.doi) return { url: it.doi.startsWith('http') ? it.doi : `https://doi.org/${it.doi}`, source: 'openalex' };
@@ -129,7 +131,7 @@ async function semanticScholar(fetchFn, ref, timeoutMs, bases, queues, gapMs) {
 }
 
 // Mutates refs in place; returns { refs, unreachable }. Each ref gets `lookup`: 'found' | 'none' and, when found, `url` + `url_source`.
-async function resolveReferences(refs, { fetchFn = fetch, concurrency = 4, timeoutMs = 10000, onProgress = () => {}, bases = BASES, s2GapMs = 1100 } = {}) {
+async function resolveReferences(refs, { fetchFn = fetch, concurrency = 4, timeoutMs = 10000, onProgress = () => {}, bases = BASES, s2GapMs = 1100, keys = {} } = {}) {
   bases = { ...BASES, ...bases };
   const queues = { s2: s2Queue(s2GapMs), dblp: s2Queue(Math.min(s2GapMs, 500)) };
   const todo = refs.filter((r) => !r.url && !r.lookup);
@@ -140,7 +142,7 @@ async function resolveReferences(refs, { fetchFn = fetch, concurrency = 4, timeo
       let hit = fromText(r.text || ''), failed = false;
       if (!hit && r.title && r.title.length >= 8) {
         for (const svc of [crossref, dblp, openAlex, semanticScholar]) {
-          try { hit = await svc(fetchFn, r, timeoutMs, bases, queues, s2GapMs); } catch { failed = true; }
+          try { hit = await svc(fetchFn, r, timeoutMs, bases, queues, s2GapMs, keys); } catch { failed = true; }
           if (hit) break;
         }
       }
