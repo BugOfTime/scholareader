@@ -52,7 +52,7 @@
           ]
         }
       ],
-      "identity": null,
+      "identity": "-",
       "icon": "build/icon.png",
       "extendInfo": {
         "CFBundleDocumentTypes": [

@@ -49,7 +49,7 @@ npm run pack   # 生成 dist/mac-arm64/Scholareader.app，用来测试
 npm run dist   # 生成 .dmg 安装包
 ```
 
-应用没有用 Apple 开发者证书签名，第一次打开时 macOS 可能提示无法验证开发者：在 Finder 里右键 Scholareader → 打开，确认一次即可。
+应用只做了本机签名（ad-hoc），没有 Apple 开发者证书。发到别的 Mac 上（比如通过微信），第一次打开会被拦下：到“系统设置 → 隐私与安全性”点“仍要打开”。如果提示“已损坏，无法打开”，先把应用拖进“应用程序”，再在终端运行 `xattr -cr /Applications/Scholareader.app`。
 
 ## 数据存放位置
 
