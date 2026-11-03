@@ -42,6 +42,15 @@ codex login               # 在浏览器里用 ChatGPT 账号登录
 
 在“设置”里选 Claude API 或 OpenAI API，填入 Key，点“测试连接”。Key 只保存在本机，用系统钥匙串加密。
 
+## 构建 Mac 应用 / Build the Mac app
+
+```bash
+npm run pack   # 生成 dist/mac-arm64/Scholareader.app，用来测试
+npm run dist   # 生成 .dmg 安装包
+```
+
+应用没有用 Apple 开发者证书签名，第一次打开时 macOS 可能提示无法验证开发者：在 Finder 里右键 Scholareader → 打开，确认一次即可。
+
 ## 数据存放位置
 
 `~/Library/Application Support/scholareader/`：`library.json`（文献列表）、`folders.json`（文件夹）、`papers/`（PDF 和 AI 结果）、`settings.json`。

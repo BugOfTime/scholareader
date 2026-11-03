@@ -104,6 +104,13 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 }
 
+// "Open With → Scholareader" or dropping a PDF on the Dock icon.
+const pendingOpen = [];
+app.on('open-file', (e, file) => {
+  e.preventDefault();
+  if (store && win) importPaths([file]); else pendingOpen.push(file);
+});
+
 app.whenReady().then(() => {
   store = new Store(process.env.SCHOLAREADER_DATA_DIR || app.getPath('userData'), safeStorage);
   store.markInterrupted();
@@ -164,7 +171,8 @@ app.whenReady().then(() => {
 
   createWindow();
   // Used by automated tests: import a PDF at startup without the file dialog.
-  if (process.env.SCHOLAREADER_IMPORT) win.webContents.once('did-finish-load', () => importPaths([process.env.SCHOLAREADER_IMPORT]));
+  if (process.env.SCHOLAREADER_IMPORT) pendingOpen.push(process.env.SCHOLAREADER_IMPORT);
+  if (pendingOpen.length) win.webContents.once('did-finish-load', () => importPaths(pendingOpen.splice(0)));
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
