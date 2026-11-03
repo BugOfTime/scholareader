@@ -355,7 +355,7 @@ function citeHTML(text, where, refs) {
     }).join(', ') + ']';
   });
 }
-const SOURCE = { doi: 'DOI', arxiv: 'arXiv', crossref: 'Crossref', semanticscholar: 'Semantic Scholar' };
+const SOURCE = { doi: 'DOI', arxiv: 'arXiv', crossref: 'Crossref', openalex: 'OpenAlex', semanticscholar: 'Semantic Scholar' };
 const refsState = {}; // paper id -> { looking, done, total, unreachable }
 function refUrl(r) {
   return r.url || `https://scholar.google.com/scholar?q=${encodeURIComponent(r.title || r.text)}`;

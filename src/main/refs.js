@@ -1,11 +1,11 @@
 // Find a link to the original for each reference that has none.
 // Order: DOI or arXiv id printed in the reference -> Crossref title search ->
-// Semantic Scholar title match. A search hit is only used when its title
+// OpenAlex title search -> Semantic Scholar title match. A search hit is only used when its title
 // matches the reference's title, so a wrong paper is never linked.
 
 const DOI_RE = /\b(10\.\d{4,9}\/[^\s"<>]+)/i;
 const ARXIV_RE = /(?:arxiv(?:\.org\/(?:abs|pdf)\/|:\s*|\s+preprint\s+arxiv:?\s*))(\d{4}\.\d{4,5}|[a-z\-]+(?:\.[A-Z]{2})?\/\d{7})(v\d+)?/i;
-const BASES = { crossref: 'https://api.crossref.org', s2: 'https://api.semanticscholar.org' };
+const BASES = { crossref: 'https://api.crossref.org', openalex: 'https://api.openalex.org', s2: 'https://api.semanticscholar.org' };
 const UA = 'Scholareader/0.1 (https://github.com/BugOfTime/scholareader)';
 
 function cleanDoi(d) { return d.replace(/[.,;)\]}]+$/, ''); }
@@ -41,7 +41,12 @@ async function getJSON(fetchFn, url, timeoutMs) {
   try {
     const r = await fetchFn(url, { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: ctrl.signal });
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      const err = new Error(`HTTP ${r.status}`);
+      err.status = r.status;
+      err.retryAfter = Number(r.headers && r.headers.get && r.headers.get('retry-after')) || 0;
+      throw err;
+    }
     return await r.json();
   } finally { clearTimeout(t); }
 }
@@ -57,9 +62,45 @@ async function crossref(fetchFn, ref, timeoutMs, bases) {
   return null;
 }
 
-async function semanticScholar(fetchFn, ref, timeoutMs, bases) {
+async function openAlex(fetchFn, ref, timeoutMs, bases) {
+  const q = encodeURIComponent(ref.title.slice(0, 300).replace(/[,:|]/g, ' '));
+  const j = await getJSON(fetchFn, `${bases.openalex}/works?search=${q}&per-page=3&select=display_name,doi,ids,primary_location`, timeoutMs);
+  for (const it of (j && j.results) || []) {
+    if (titleMatch(it.display_name, ref.title) < GOOD) continue;
+    if (it.doi) return { url: it.doi.startsWith('http') ? it.doi : `https://doi.org/${it.doi}`, source: 'openalex' };
+    const page = it.primary_location && it.primary_location.landing_page_url;
+    if (page && /^https?:\/\//.test(page)) return { url: page, source: 'openalex' };
+  }
+  return null;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Semantic Scholar allows about one request per second without an API key,
+// so its calls are queued one at a time and a 429 is retried after a wait.
+function s2Queue(gapMs) {
+  let tail = Promise.resolve(), last = 0;
+  return (fn) => {
+    const run = tail.then(async () => {
+      const wait = last + gapMs - Date.now();
+      if (wait > 0) await sleep(wait);
+      try { return await fn(); } finally { last = Date.now(); }
+    });
+    tail = run.catch(() => {});
+    return run;
+  };
+}
+
+async function semanticScholar(fetchFn, ref, timeoutMs, bases, queue, gapMs) {
   const q = encodeURIComponent(ref.title.slice(0, 300));
-  const j = await getJSON(fetchFn, `${bases.s2}/graph/v1/paper/search/match?query=${q}&fields=title,externalIds,url`, timeoutMs);
+  const url = `${bases.s2}/graph/v1/paper/search/match?query=${q}&fields=title,externalIds,url`;
+  let j;
+  for (let attempt = 0; ; attempt++) {
+    try { j = await queue(() => getJSON(fetchFn, url, timeoutMs)); break; } catch (err) {
+      if (err.status !== 429 || attempt >= 2) throw err;
+      await sleep(Math.min(10000, (err.retryAfter * 1000) || gapMs * 2 * (attempt + 1)));
+    }
+  }
   const it = j && Array.isArray(j.data) ? j.data[0] : null;
   if (!it || titleMatch(it.title, ref.title) < GOOD) return null;
   const ids = it.externalIds || {};
@@ -70,7 +111,9 @@ async function semanticScholar(fetchFn, ref, timeoutMs, bases) {
 }
 
 // Mutates refs in place; returns { refs, unreachable }. Each ref gets `lookup`: 'found' | 'none' and, when found, `url` + `url_source`.
-async function resolveReferences(refs, { fetchFn = fetch, concurrency = 4, timeoutMs = 10000, onProgress = () => {}, bases = BASES } = {}) {
+async function resolveReferences(refs, { fetchFn = fetch, concurrency = 4, timeoutMs = 10000, onProgress = () => {}, bases = BASES, s2GapMs = 1100 } = {}) {
+  bases = { ...BASES, ...bases };
+  const queue = s2Queue(s2GapMs);
   const todo = refs.filter((r) => !r.url && !r.lookup);
   let i = 0, done = 0, unreachable = 0;
   async function worker() {
@@ -78,8 +121,8 @@ async function resolveReferences(refs, { fetchFn = fetch, concurrency = 4, timeo
       const r = todo[i++];
       let hit = fromText(r.text || ''), failed = false;
       if (!hit && r.title && r.title.length >= 8) {
-        for (const svc of [crossref, semanticScholar]) {
-          try { hit = await svc(fetchFn, r, timeoutMs, bases); } catch { failed = true; }
+        for (const svc of [crossref, openAlex, semanticScholar]) {
+          try { hit = await svc(fetchFn, r, timeoutMs, bases, queue, s2GapMs); } catch { failed = true; }
           if (hit) break;
         }
       }

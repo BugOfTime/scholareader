@@ -53,7 +53,7 @@ async function lookupRefs(id) {
     ({ unreachable } = await refs.resolveReferences(paper.references, {
       fetchFn: (url, opts) => net.fetch(url, opts),
       // Tests point these at a local mock server.
-      bases: { crossref: process.env.SCHOLAREADER_CROSSREF_URL || 'https://api.crossref.org', s2: process.env.SCHOLAREADER_S2_URL || 'https://api.semanticscholar.org' },
+      bases: { crossref: process.env.SCHOLAREADER_CROSSREF_URL || 'https://api.crossref.org', openalex: process.env.SCHOLAREADER_OPENALEX_URL || 'https://api.openalex.org', s2: process.env.SCHOLAREADER_S2_URL || 'https://api.semanticscholar.org' },
       onProgress: (done, total) => send('paper:refs', { id, state: 'progress', done, total }),
     }));
     const latest = store.readData(id);
