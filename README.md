@@ -21,4 +21,4 @@ Early planning. No code yet; stack and UI design are being discussed.
 
 ## License
 
-See [LICENSE](LICENSE).
+TBD
