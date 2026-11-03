@@ -88,3 +88,16 @@ test('Semantic Scholar calls are spaced out and a 429 is retried', async () => {
   assert.ok(refs.every((r) => r.url_source === 'semanticscholar'));
   for (let i = 1; i < times.length; i++) assert.ok(times[i] - times[i - 1] >= 55, `gap ${times[i] - times[i - 1]}ms`);
 });
+
+test('DBLP finds conference papers when OpenAlex and Semantic Scholar refuse', async () => {
+  const fetchFn = async (url) => {
+    if (url.includes('crossref')) return json({ message: { items: [] } });
+    if (url.includes('dblp')) return json({ result: { hits: { hit: [{ info: { title: 'Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks.', ee: 'https://proceedings.neurips.cc/paper/2020/hash/6b493230205f780e1bc26945df7481e5-Abstract.html' } }] } } });
+    return json({}, 429);
+  };
+  const refs = [{ n: 2, text: 'P. Lewis et al. NeurIPS 2020.', title: 'Retrieval-augmented generation for knowledge-intensive NLP tasks', url: '' }];
+  const { unreachable } = await resolveReferences(refs, { fetchFn, s2GapMs: 5 });
+  assert.strictEqual(unreachable, 0);
+  assert.strictEqual(refs[0].url_source, 'dblp');
+  assert.ok(refs[0].url.startsWith('https://proceedings.neurips.cc/'));
+});

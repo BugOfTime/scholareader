@@ -1,11 +1,11 @@
 // Find a link to the original for each reference that has none.
 // Order: DOI or arXiv id printed in the reference -> Crossref title search ->
-// OpenAlex title search -> Semantic Scholar title match. A search hit is only used when its title
+// DBLP title search (computer science) -> OpenAlex title search -> Semantic Scholar title match. A search hit is only used when its title
 // matches the reference's title, so a wrong paper is never linked.
 
 const DOI_RE = /\b(10\.\d{4,9}\/[^\s"<>]+)/i;
 const ARXIV_RE = /(?:arxiv(?:\.org\/(?:abs|pdf)\/|:\s*|\s+preprint\s+arxiv:?\s*))(\d{4}\.\d{4,5}|[a-z\-]+(?:\.[A-Z]{2})?\/\d{7})(v\d+)?/i;
-const BASES = { crossref: 'https://api.crossref.org', openalex: 'https://api.openalex.org', s2: 'https://api.semanticscholar.org' };
+const BASES = { crossref: 'https://api.crossref.org', dblp: 'https://dblp.org', openalex: 'https://api.openalex.org', s2: 'https://api.semanticscholar.org' };
 const UA = 'Scholareader/0.1 (https://github.com/BugOfTime/scholareader)';
 
 function cleanDoi(d) { return d.replace(/[.,;)\]}]+$/, ''); }
@@ -62,6 +62,23 @@ async function crossref(fetchFn, ref, timeoutMs, bases) {
   return null;
 }
 
+// DBLP covers computer science venues (NeurIPS, ICML, ACL...) that Crossref often lacks.
+async function dblp(fetchFn, ref, timeoutMs, bases, queues) {
+  const q = encodeURIComponent(ref.title.slice(0, 300));
+  const j = await queues.dblp(() => getJSON(fetchFn, `${bases.dblp}/search/publ/api?q=${q}&format=json&h=5`, timeoutMs));
+  let hits = j && j.result && j.result.hits && j.result.hits.hit;
+  if (!hits) return null;
+  if (!Array.isArray(hits)) hits = [hits];
+  for (const h of hits) {
+    const it = h.info || {};
+    if (titleMatch(it.title, ref.title) < GOOD) continue;
+    if (it.doi) return { url: `https://doi.org/${it.doi}`, source: 'dblp' };
+    const ee = (Array.isArray(it.ee) ? it.ee : [it.ee]).map((e) => (e && e.text) || e).find((e) => typeof e === 'string' && /^https?:\/\//.test(e));
+    if (ee) return { url: ee, source: 'dblp' };
+  }
+  return null;
+}
+
 async function openAlex(fetchFn, ref, timeoutMs, bases) {
   const q = encodeURIComponent(ref.title.slice(0, 300).replace(/[,:|]/g, ' '));
   const j = await getJSON(fetchFn, `${bases.openalex}/works?search=${q}&per-page=3&select=display_name,doi,ids,primary_location`, timeoutMs);
@@ -76,8 +93,8 @@ async function openAlex(fetchFn, ref, timeoutMs, bases) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Semantic Scholar allows about one request per second without an API key,
-// so its calls are queued one at a time and a 429 is retried after a wait.
+// Runs calls one at a time, at least gapMs apart. Semantic Scholar allows about
+// one request per second without an API key; DBLP asks clients to go slowly too.
 function s2Queue(gapMs) {
   let tail = Promise.resolve(), last = 0;
   return (fn) => {
@@ -91,7 +108,8 @@ function s2Queue(gapMs) {
   };
 }
 
-async function semanticScholar(fetchFn, ref, timeoutMs, bases, queue, gapMs) {
+async function semanticScholar(fetchFn, ref, timeoutMs, bases, queues, gapMs) {
+  const queue = queues.s2;
   const q = encodeURIComponent(ref.title.slice(0, 300));
   const url = `${bases.s2}/graph/v1/paper/search/match?query=${q}&fields=title,externalIds,url`;
   let j;
@@ -113,7 +131,7 @@ async function semanticScholar(fetchFn, ref, timeoutMs, bases, queue, gapMs) {
 // Mutates refs in place; returns { refs, unreachable }. Each ref gets `lookup`: 'found' | 'none' and, when found, `url` + `url_source`.
 async function resolveReferences(refs, { fetchFn = fetch, concurrency = 4, timeoutMs = 10000, onProgress = () => {}, bases = BASES, s2GapMs = 1100 } = {}) {
   bases = { ...BASES, ...bases };
-  const queue = s2Queue(s2GapMs);
+  const queues = { s2: s2Queue(s2GapMs), dblp: s2Queue(Math.min(s2GapMs, 500)) };
   const todo = refs.filter((r) => !r.url && !r.lookup);
   let i = 0, done = 0, unreachable = 0;
   async function worker() {
@@ -121,8 +139,8 @@ async function resolveReferences(refs, { fetchFn = fetch, concurrency = 4, timeo
       const r = todo[i++];
       let hit = fromText(r.text || ''), failed = false;
       if (!hit && r.title && r.title.length >= 8) {
-        for (const svc of [crossref, openAlex, semanticScholar]) {
-          try { hit = await svc(fetchFn, r, timeoutMs, bases, queue, s2GapMs); } catch { failed = true; }
+        for (const svc of [crossref, dblp, openAlex, semanticScholar]) {
+          try { hit = await svc(fetchFn, r, timeoutMs, bases, queues, s2GapMs); } catch { failed = true; }
           if (hit) break;
         }
       }
