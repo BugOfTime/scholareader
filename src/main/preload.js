@@ -1,0 +1,27 @@
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  listLibrary: () => ipcRenderer.invoke('library:list'),
+  importPdf: (folderIds) => ipcRenderer.invoke('library:import', folderIds || []),
+  importFiles: (files, folderIds) => ipcRenderer.invoke('library:importPaths', [...files].map((f) => webUtils.getPathForFile(f)), folderIds || []),
+  listFolders: () => ipcRenderer.invoke('folders:list'),
+  createFolder: (name) => ipcRenderer.invoke('folders:create', name),
+  renameFolder: (id, name) => ipcRenderer.invoke('folders:rename', id, name),
+  deleteFolder: (id) => ipcRenderer.invoke('folders:delete', id),
+  setPaperFolders: (id, ids) => ipcRenderer.invoke('library:setFolders', id, ids),
+  onFolders: (fn) => ipcRenderer.on('folders:changed', (_e, list) => fn(list)),
+  retry: (id) => ipcRenderer.invoke('library:retry', id),
+  remove: (id) => ipcRenderer.invoke('library:remove', id),
+  touch: (id, patch) => ipcRenderer.invoke('library:touch', id, patch),
+  getPaper: (id) => ipcRenderer.invoke('paper:get', id),
+  showPdf: (id) => ipcRenderer.invoke('paper:showPdf', id),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  setSettings: (s) => ipcRenderer.invoke('settings:set', s),
+  testSettings: (s) => ipcRenderer.invoke('settings:test', s),
+  codexStatus: () => ipcRenderer.invoke('codex:status'),
+  codexLogin: () => ipcRenderer.invoke('codex:login'),
+  explain: (req) => ipcRenderer.invoke('ai:explain', req),
+  onLibrary: (fn) => ipcRenderer.on('library:changed', (_e, list) => fn(list)),
+  onProgress: (fn) => ipcRenderer.on('paper:progress', (_e, p) => fn(p)),
+  onRefs: (fn) => ipcRenderer.on('paper:refs', (_e, p) => fn(p)),
+});

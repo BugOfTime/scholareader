@@ -1,0 +1,77 @@
+{
+  "name": "scholareader",
+  "version": "0.1.0",
+  "description": "Scholaread-style paper reader for macOS: bilingual layout, select-to-explain, AI summary and linked citations.",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --mac dmg"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BugOfTime/scholareader.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/BugOfTime/scholareader/issues"
+  },
+  "homepage": "https://github.com/BugOfTime/scholareader#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
+    "openai": "^7.47.0",
+    "pdfjs-dist": "^6.5.438"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0"
+  },
+  "private": true,
+  "productName": "Scholareader",
+  "author": "BugOfTime",
+  "build": {
+    "appId": "io.github.bugoftime.scholareader",
+    "productName": "Scholareader",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "icon": "build/icon.png",
+      "extendInfo": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "PDF",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "com.adobe.pdf"
+            ]
+          }
+        ]
+      }
+    },
+    "dmg": {
+      "title": "Scholareader"
+    },
+    "linux": {
+      "target": "dir"
+    }
+  }
+}

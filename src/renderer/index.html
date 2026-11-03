@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scholareader</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="drag"></div>
+<div class="app lib" id="app">
+  <aside class="side" aria-label="导航">
+    <div class="ws"><span class="logo">S</span>Scholareader</div>
+    <button class="nav on" data-go="lib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 3.5h4a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 0-1.5-1.5h-4zM13.5 3.5h-4A1.5 1.5 0 0 0 8 5v8a1.5 1.5 0 0 1 1.5-1.5h4z"/></svg>文献库<span class="n" id="nAll"></span></button>
+    <button class="nav" data-go="recent"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/></svg>最近阅读</button>
+    <button class="nav" id="searchNav"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>搜索</button>
+    <div class="grp grp-row"><span>文件夹</span><button class="grp-add" id="addFolder" aria-label="新建文件夹" title="新建文件夹">＋</button></div>
+    <form class="folder-form" id="newFolderForm" hidden><input id="newFolderName" maxlength="60" placeholder="文件夹名称，按回车创建" aria-label="新文件夹名称" autocomplete="off"></form>
+    <div id="folderNav" class="folder-nav"></div>
+    <div class="spacer"></div>
+    <button class="prov" id="provBtn"><span class="dot" id="provDot"></span><span id="provText">未设置 AI</span></button>
+  </aside>
+
+  <main class="main">
+    <div class="topbar" id="topbar" hidden>
+      <button class="icon-btn" id="backBtn">← 文献库</button><div class="crumb" id="crumb"></div>
+      <div class="seg" role="group" aria-label="显示方式">
+        <button data-mode="both" class="on">对照</button>
+        <button data-mode="en">原文</button>
+        <button data-mode="zh">译文</button>
+      </div>
+      <button class="icon-btn" id="readerFolderBtn">文件夹</button>
+      <button class="icon-btn" id="pdfBtn">打开 PDF</button>
+      <button class="icon-btn" id="settingsBtn">设置</button>
+    </div>
+    <div class="scroll" id="libView">
+      <div class="lib-wrap">
+        <div class="lib-head">
+          <div><h1 id="libTitle">文献库</h1><p class="lib-sub" id="libSub"></p></div>
+          <div class="lib-acts"><button class="pill" id="settingsBtn2">设置</button><button class="pill fill" id="importBtn">＋ 添加文章</button></div>
+        </div>
+        <label class="lib-search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><input id="libQ" placeholder="输入标题或作者进行搜索" aria-label="搜索文献"></label>
+        <div class="grid" id="grid"></div>
+      </div>
+    </div>
+    <div class="scroll" id="scroll" hidden>
+      <article class="page" id="page"></article>
+    </div>
+  </main>
+
+  <aside class="panel" aria-label="AI 面板">
+    <div class="tabs" role="tablist">
+      <button data-tab="sum" class="on">总结</button>
+      <button data-tab="exp">解释<span class="count" id="expCount"></span></button>
+      <button data-tab="ref">引用<span class="count" id="refCount"></span></button>
+    </div>
+    <div class="pbody" id="pbody"></div>
+  </aside>
+</div>
+
+<div class="fpop" id="fpop" hidden role="dialog" aria-label="放进文件夹"></div>
+<div class="pop" id="pop" hidden><button id="popExplain">解释</button><button id="popCopy">复制</button></div>
+<div class="droppad" id="droppad" hidden>松开鼠标，导入 PDF</div>
+
+<div class="veil" id="veil" hidden>
+  <form class="modal" id="settingsForm">
+    <h2>AI 设置</h2>
+    <p class="sub">排版、翻译、总结和划词解释都使用这里选的同一个服务和模型。</p>
+    <div class="field"><span class="lbl">服务商</span>
+      <div class="radios three">
+        <label><input type="radio" name="prov" id="provCodex" value="codex" checked>ChatGPT 订阅</label>
+        <label><input type="radio" name="prov" id="provClaude" value="claude">Claude API</label>
+        <label><input type="radio" name="prov" id="provOpenai" value="openai">OpenAI API</label>
+      </div>
+    </div>
+    <div class="field codexbox" id="codexBox">
+      <div class="cstat" id="codexStat">正在检测 Codex…</div>
+      <div class="cacts"><button type="button" class="btn primary" id="codexLogin">用 ChatGPT 登录</button><button type="button" class="btn" id="codexRecheck">重新检测</button></div>
+      <div class="note" id="codexHelp">通过 OpenAI 官方的 Codex 工具使用你的 ChatGPT 订阅额度，不需要 API Key。还没装的话，在“终端”里运行下面任一条命令，装好后点“重新检测”：<code>brew install codex</code> 或 <code>npm install -g @openai/codex</code></div>
+    </div>
+    <div class="field"><label for="model">模型</label>
+      <input id="model" list="modelList" autocomplete="off"><datalist id="modelList"></datalist>
+      <span class="note">可以从列表里选，也可以直接输入模型名。</span>
+    </div>
+    <div class="field" id="keyField"><label for="apikey">API Key</label><input id="apikey" type="password" autocomplete="off">
+      <span class="note" id="keyNote">Key 只保存在这台电脑上，用系统钥匙串加密。</span>
+    </div>
+    <div class="field"><label for="oaKey">OpenAlex Key（可选）</label><input id="oaKey" autocomplete="off" placeholder="留空也能用">
+      <span class="note">用来给参考文献查原文链接。走 VPN 时免费额度常被同一出口的其他人用完，在 openalex.org 免费注册一个 Key 填这里就不受影响。</span>
+    </div>
+    <div class="row"><span class="testres" id="testRes"></span><button type="button" class="btn" id="testBtn">测试连接</button><button type="button" class="btn" id="cancelBtn">取消</button><button type="submit" class="btn primary">保存</button></div>
+  </form>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="sample.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
