@@ -23,4 +23,5 @@ contextBridge.exposeInMainWorld('api', {
   explain: (req) => ipcRenderer.invoke('ai:explain', req),
   onLibrary: (fn) => ipcRenderer.on('library:changed', (_e, list) => fn(list)),
   onProgress: (fn) => ipcRenderer.on('paper:progress', (_e, p) => fn(p)),
+  onRefs: (fn) => ipcRenderer.on('paper:refs', (_e, p) => fn(p)),
 });

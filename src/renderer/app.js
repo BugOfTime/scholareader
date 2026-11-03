@@ -325,6 +325,7 @@ async function openPaper(id) {
   const data = entry.sample ? SAMPLE : await API.getPaper(id);
   if (!data) { toast('找不到这篇文章的数据，请重试'); return; }
   current = { id, entry, data };
+  if (data.refsLooking) refsState[id] = { ...(refsState[id] || {}), looking: true };
   const now = Date.now();
   if (entry.sample) store.set('sr-sample-opened', now); else API.touch(id, { openedAt: now });
   entry.openedAt = now;
@@ -354,6 +355,8 @@ function citeHTML(text, where, refs) {
     }).join(', ') + ']';
   });
 }
+const SOURCE = { doi: 'DOI', arxiv: 'arXiv', crossref: 'Crossref', semanticscholar: 'Semantic Scholar' };
+const refsState = {}; // paper id -> { looking, done, total, unreachable }
 function refUrl(r) {
   return r.url || `https://scholar.google.com/scholar?q=${encodeURIComponent(r.title || r.text)}`;
 }
@@ -428,12 +431,17 @@ function renderPanel() {
   const refs = current.data.references || [];
   if (!refs.length) { pb.innerHTML = '<div class="empty">这篇文章没有识别到参考文献。</div>'; return; }
   let h = '<input class="search" id="refSearch" placeholder="搜索参考文献" aria-label="搜索参考文献">';
+  const st = refsState[current.id] || {}, linked = refs.filter((r) => r.url).length;
+  if (st.looking) h += `<div class="lookup"><span class="spin"></span>正在查找原文链接${st.total ? ` ${st.done || 0}/${st.total}` : '…'}</div>`;
+  else if (!current.data.sample) h += `<div class="lookup">${linked}/${refs.length} 篇找到了原文链接${linked < refs.length ? '，其余可以在 Google Scholar 搜索' : ''}${st.unreachable ? `。有 ${st.unreachable} 篇暂时连不上查询服务，下次打开时再试` : ''}</div>`;
   for (const r of refs) {
     const o = (occ[r.n] || []).filter((x) => x.includes('-en-')).length;
     h += `<div class="ref" id="pr${r.n}" data-q="${esc((r.title + ' ' + r.text).toLowerCase())}"><div class="t">[${r.n}] ${esc(r.title || r.text)}</div>${r.title ? `<div class="m">${esc(r.text)}</div>` : ''}
-      <div class="acts"><a class="chip open" href="${esc(refUrl(r))}" target="_blank" rel="noopener">${r.url ? '打开原文 ↗' : '在 Google Scholar 搜索 ↗'}</a>${o ? `<button class="chip" data-jump="${r.n}">在文中出现 ${o} 次 · 定位</button>` : ''}<button class="chip" data-inlist="${r.n}">参考文献表</button></div></div>`;
+      <div class="acts"><a class="chip open" href="${esc(refUrl(r))}" target="_blank" rel="noopener">${r.url ? '打开原文 ↗' : '在 Google Scholar 搜索 ↗'}</a>${o ? `<button class="chip" data-jump="${r.n}">在文中出现 ${o} 次 · 定位</button>` : ''}<button class="chip" data-inlist="${r.n}">参考文献表</button>${r.url_source ? `<span class="src">来源：${SOURCE[r.url_source] || esc(r.url_source)}</span>` : ''}</div></div>`;
   }
+  const q = $('#refSearch') ? $('#refSearch').value : '';
   pb.innerHTML = h;
+  if (q) { $('#refSearch').value = q; $$('.ref').forEach((r) => (r.hidden = !r.dataset.q.includes(q.toLowerCase()))); }
   $('#refSearch').addEventListener('input', (e) => { const q = e.target.value.toLowerCase(); $$('.ref').forEach((r) => (r.hidden = !r.dataset.q.includes(q))); });
 }
 $$('.tabs button').forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderPanel(); }));
@@ -606,6 +614,22 @@ document.addEventListener('keydown', (e) => {
 API.onLibrary((list) => { refreshLibrary(list); renderFolders(); if (!$('#fpop').hidden) renderFolderPop(); });
 API.onFolders((list) => loadFolders(list));
 API.onProgress(({ id, chars }) => { progressChars[id] = chars; if (view !== 'read') renderLib(); });
+API.onRefs(async ({ id, state, done, total, unreachable }) => {
+  const st = (refsState[id] = { ...(refsState[id] || {}), looking: state !== 'done' });
+  if (state !== 'done') { st.done = done; st.total = total; }
+  else {
+    st.unreachable = unreachable;
+    if (current && current.id === id) {
+      const data = await API.getPaper(id);
+      if (data && current && current.id === id) {
+        current.data.references = data.references;
+        const sc = $('#scroll'), top = sc.scrollTop;
+        renderPaper(); sc.scrollTop = top;
+      }
+    }
+  }
+  if (current && current.id === id && view === 'read' && tab === 'ref') renderPanel();
+});
 
 (async () => {
   settings = await API.getSettings();

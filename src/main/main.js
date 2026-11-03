@@ -1,11 +1,14 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, net } = require('electron');
 const path = require('path');
 const { Store } = require('./store');
 const ai = require('./ai');
 const codex = require('./codex');
+const refs = require('./refs');
 
 let win, store;
 const running = new Set();
+const lookingUp = new Set(); // papers whose reference links are being looked up
+const triedOnOpen = new Set(); // look up an opened paper at most once per app run
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -28,11 +31,39 @@ async function processPaper(id) {
     paper.model = cfg.model;
     store.writeData(id, paper);
     store.update(id, { status: 'ready', title: paper.title || entry.title, authors: paper.authors, progress: 0 });
+    lookupRefs(id);
   } catch (err) {
     store.update(id, { status: 'error', error: err.message || String(err) });
   } finally {
     running.delete(id);
     broadcastLibrary();
+  }
+}
+
+// Find original links for references that have none, in the background.
+// Electron's net.fetch uses the system proxy and certificates, like the browser.
+async function lookupRefs(id) {
+  if (lookingUp.has(id) || process.env.SCHOLAREADER_NO_LOOKUP) return;
+  const paper = store.readData(id);
+  if (!paper || !refs.needsLookup(paper.references)) return;
+  lookingUp.add(id);
+  send('paper:refs', { id, state: 'start', done: 0, total: paper.references.filter((r) => !r.url && !r.lookup).length });
+  let unreachable = 0;
+  try {
+    ({ unreachable } = await refs.resolveReferences(paper.references, {
+      fetchFn: (url, opts) => net.fetch(url, opts),
+      // Tests point these at a local mock server.
+      bases: { crossref: process.env.SCHOLAREADER_CROSSREF_URL || 'https://api.crossref.org', s2: process.env.SCHOLAREADER_S2_URL || 'https://api.semanticscholar.org' },
+      onProgress: (done, total) => send('paper:refs', { id, state: 'progress', done, total }),
+    }));
+    const latest = store.readData(id);
+    // Skip the write if the paper was deleted or is being processed again meanwhile.
+    if (latest && !running.has(id)) { latest.references = paper.references; store.writeData(id, latest); }
+  } catch (err) {
+    console.error('reference lookup failed', err);
+  } finally {
+    lookingUp.delete(id);
+    send('paper:refs', { id, state: 'done', unreachable });
   }
 }
 
@@ -96,7 +127,12 @@ app.whenReady().then(() => {
     store.remove(id); broadcastLibrary(); return true;
   });
   ipcMain.handle('library:touch', (_e, id, patch) => { const t = Number(patch && patch.openedAt); if (t > 0) store.update(id, { openedAt: t }); return true; });
-  ipcMain.handle('paper:get', (_e, id) => store.readData(id));
+  ipcMain.handle('paper:get', (_e, id) => {
+    const data = store.readData(id);
+    // Older papers get their links filled in on open (once per run, so an offline Mac doesn't loop).
+    if (data && !running.has(id) && !triedOnOpen.has(id)) { triedOnOpen.add(id); lookupRefs(id); }
+    return data && { ...data, refsLooking: lookingUp.has(id) };
+  });
   ipcMain.handle('paper:showPdf', (_e, id) => shell.openPath(store.pdfPath(id)));
 
   ipcMain.handle('settings:get', () => {
