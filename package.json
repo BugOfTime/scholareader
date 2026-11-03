@@ -1,0 +1,28 @@
+{
+  "name": "scholareader",
+  "version": "0.1.0",
+  "description": "Scholaread-style paper reader for macOS: bilingual layout, select-to-explain, AI summary and linked citations.",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BugOfTime/scholareader.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/BugOfTime/scholareader/issues"
+  },
+  "homepage": "https://github.com/BugOfTime/scholareader#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
+    "openai": "^7.47.0",
+    "pdfjs-dist": "^6.5.438"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1"
+  },
+  "private": true
+}

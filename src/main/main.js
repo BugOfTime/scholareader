@@ -1,0 +1,120 @@
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
+const path = require('path');
+const { Store } = require('./store');
+const ai = require('./ai');
+const codex = require('./codex');
+
+let win, store;
+const running = new Set();
+
+function send(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+function broadcastLibrary() { send('library:changed', store.list()); }
+
+async function processPaper(id) {
+  if (running.has(id)) return;
+  running.add(id);
+  const entry = store.update(id, { status: 'processing', progress: 0, error: '' });
+  broadcastLibrary();
+  let last = 0;
+  try {
+    const cfg = store.getSettings();
+    const paper = await ai.analyzePaper(cfg, store.readPdf(id), entry.fileName, (chars) => {
+      if (chars - last > 400) { last = chars; send('paper:progress', { id, chars }); }
+    });
+    paper.provider = cfg.prov;
+    paper.model = cfg.model;
+    store.writeData(id, paper);
+    store.update(id, { status: 'ready', title: paper.title || entry.title, authors: paper.authors, progress: 0 });
+  } catch (err) {
+    store.update(id, { status: 'error', error: err.message || String(err) });
+  } finally {
+    running.delete(id);
+    broadcastLibrary();
+  }
+}
+
+function importPaths(paths) {
+  const pdfs = paths.filter((p) => /\.pdf$/i.test(p));
+  for (const p of pdfs) {
+    const entry = store.addPdf(p);
+    processPaper(entry.id);
+  }
+  broadcastLibrary();
+  return pdfs.length;
+}
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 900,
+    minHeight: 600,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  // Reference links open in the default browser, never inside the app.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('file://')) { e.preventDefault(); if (/^https?:\/\//.test(url)) shell.openExternal(url); }
+  });
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+}
+
+app.whenReady().then(() => {
+  store = new Store(process.env.SCHOLAREADER_DATA_DIR || app.getPath('userData'), safeStorage);
+  store.markInterrupted();
+
+  ipcMain.handle('library:list', () => store.list());
+  ipcMain.handle('library:import', async () => {
+    const r = await dialog.showOpenDialog(win, { title: '添加文章', properties: ['openFile', 'multiSelections'], filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+    return r.canceled ? 0 : importPaths(r.filePaths);
+  });
+  ipcMain.handle('library:importPaths', (_e, paths) => importPaths(Array.isArray(paths) ? paths : []));
+  ipcMain.handle('library:retry', (_e, id) => { processPaper(id); return true; });
+  ipcMain.handle('library:remove', (_e, id) => { if (!running.has(id)) { store.remove(id); broadcastLibrary(); } return true; });
+  ipcMain.handle('library:touch', (_e, id, patch) => { store.update(id, { ...patch }); return true; });
+  ipcMain.handle('paper:get', (_e, id) => store.readData(id));
+  ipcMain.handle('paper:showPdf', (_e, id) => shell.openPath(store.pdfPath(id)));
+
+  ipcMain.handle('settings:get', () => {
+    const s = store.getSettings();
+    return { prov: s.prov, model: s.model, hasKey: !!s.key, keyHint: s.key ? `…${s.key.slice(-4)}` : '' };
+  });
+  ipcMain.handle('settings:set', (_e, s) => {
+    const cur = store.getSettings();
+    const key = s.key === undefined ? cur.key : String(s.key).trim();
+    const prov = ['codex', 'claude', 'openai'].includes(s.prov) ? s.prov : cur.prov;
+    store.setSettings({ prov, model: String(s.model ?? '').trim(), key, codexPath: cur.codexPath });
+    return true;
+  });
+  ipcMain.handle('codex:status', () => codex.status(store.getSettings().codexPath));
+  ipcMain.handle('codex:login', async () => {
+    try { return { ok: true, status: await codex.login(store.getSettings().codexPath) }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('settings:test', async (_e, s) => {
+    const cur = store.getSettings();
+    const cfg = { prov: s.prov, model: s.model, codexPath: cur.codexPath, key: s.key === undefined ? cur.key : String(s.key).trim() };
+    try { await ai.testConnection(cfg); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('ai:explain', async (_e, req) => {
+    try { return { ok: true, text: await ai.explain(store.getSettings(), req) }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  createWindow();
+  // Used by automated tests: import a PDF at startup without the file dialog.
+  if (process.env.SCHOLAREADER_IMPORT) win.webContents.once('did-finish-load', () => importPaths([process.env.SCHOLAREADER_IMPORT]));
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+});
+
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
