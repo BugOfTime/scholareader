@@ -96,7 +96,7 @@ test('Claude path turns a 401 into a readable message', async () => {
   }
 });
 
-function fakeCodex({ loggedIn = true } = {}) {
+function fakeCodex({ loggedIn = true, configModelBroken = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fakecodex-'));
   const log = path.join(dir, 'calls.jsonl');
   const bin = path.join(dir, 'codex');
@@ -108,6 +108,11 @@ let stdin = ''; process.stdin.on('data', d => stdin += d); process.stdin.on('end
   if (args[0] === 'login' && args[1] === 'status') { if (${loggedIn}) { console.log('Logged in using ChatGPT'); process.exit(0); } console.error('Not logged in'); process.exit(1); }
   if (args[0] === 'exec') {
     if (!${loggedIn}) { console.error('Error: not logged in. Run codex login'); process.exit(1); }
+    if (${configModelBroken} && !args.includes('--ignore-user-config')) {
+      console.log(JSON.stringify({ type: 'turn.started' }));
+      console.log(JSON.stringify({ type: 'error', message: JSON.stringify({ type: 'error', status: 400, error: { type: 'invalid_request_error', message: "The 'gpt-x' model is not supported when using Codex with a ChatGPT account.", code: 'model_not_found' } }) }));
+      process.exit(1);
+    }
     const o = args[args.indexOf('-o') + 1];
     const schema = args.includes('--output-schema');
     console.log(JSON.stringify({ type: 'thread.started' }));
@@ -142,4 +147,18 @@ test('Codex path reports when not logged in', async () => {
   const st = await codex.status(f.bin);
   assert.equal(st.loggedIn, false);
   await assert.rejects(ai.analyzePaper({ prov: 'codex', model: '', codexPath: f.bin }, PDF, 'mini.pdf'), /还没有登录/);
+});
+
+test('Codex path retries with built-in default when the config model is not allowed for ChatGPT accounts', async () => {
+  const f = fakeCodex({ configModelBroken: true });
+  const paper = await ai.analyzePaper({ prov: 'codex', model: '', codexPath: f.bin }, PDF, 'mini.pdf');
+  assert.equal(paper.title, RESULT.title);
+  const execs = f.calls().filter((c) => c.args[0] === 'exec');
+  assert.equal(execs.length, 2);
+  assert.ok(execs[1].args.includes('--ignore-user-config'));
+});
+
+test('Codex path explains an unsupported model the user picked', async () => {
+  const f = fakeCodex({ configModelBroken: true });
+  await assert.rejects(ai.analyzePaper({ prov: 'codex', model: 'gpt-x', codexPath: f.bin }, PDF, 'mini.pdf'), /不能用 ChatGPT 账号调用：The 'gpt-x' model is not supported/);
 });

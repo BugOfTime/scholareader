@@ -78,29 +78,57 @@ async function login(custom) {
   return status(custom);
 }
 
+// Pull the human-readable error out of Codex's JSONL event stream.
+function codexErrorMessage(r) {
+  const msgs = [];
+  for (const line of String(r.out).split('\n')) {
+    let ev;
+    try { ev = JSON.parse(line); } catch { continue; }
+    let m = ev.type === 'error' ? ev.message : ev.type === 'turn.failed' && ev.error ? ev.error.message : null;
+    if (!m) continue;
+    try { const inner = JSON.parse(m); m = (inner.error && inner.error.message) || inner.message || m; } catch {}
+    if (!/^Reconnecting/.test(m)) msgs.push(m);
+  }
+  const stderr = String(r.err).split('\n').filter((l) => l.trim() && !/^WARNING/.test(l));
+  return (msgs[msgs.length - 1] || stderr.slice(-2).join(' ') || '未知错误').slice(0, 300);
+}
+
 async function execCodex(cfg, prompt, { schema, timeoutMs, onProgress } = {}) {
   const bin = await findCodex(cfg.codexPath);
   if (!bin) throw new CodexError('没有找到 Codex。请先安装并登录，见设置里的说明。');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scholareader-'));
-  try {
-    const outFile = path.join(dir, 'out.txt');
-    const args = ['exec', '--skip-git-repo-check', '--ephemeral', '--color', 'never', '-s', 'read-only', '-C', dir, '-o', outFile];
-    if (schema) { fs.writeFileSync(path.join(dir, 'schema.json'), JSON.stringify(schema)); args.push('--output-schema', path.join(dir, 'schema.json')); }
-    if (cfg.model) args.push('-m', cfg.model);
-    args.push('--json', '-');
-    let events = 0;
-    const r = await run(bin, args, { input: prompt, timeoutMs, onStdout: (d) => { events += d.length; if (onProgress) onProgress(events); } });
-    const text = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : '';
-    if (r.code !== 0 || !text.trim()) {
-      const log = (r.err + '\n' + r.out).trim();
-      if (/not logged in|login|unauthor|401/i.test(log)) throw new CodexError('Codex 还没有登录，请在设置里点“用 ChatGPT 登录”。');
-      if (/usage limit|rate limit|429/i.test(log)) throw new CodexError('ChatGPT 订阅的用量已达上限，请稍后再试。');
-      throw new CodexError('Codex 运行失败：' + log.split('\n').filter(Boolean).slice(-3).join(' ').slice(0, 300));
+  const attempt = async (ignoreUserConfig) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scholareader-'));
+    try {
+      const outFile = path.join(dir, 'out.txt');
+      const args = ['exec', '--skip-git-repo-check', '--ephemeral', '--color', 'never', '-s', 'read-only', '-C', dir, '-o', outFile];
+      if (ignoreUserConfig) args.push('--ignore-user-config');
+      if (schema) { fs.writeFileSync(path.join(dir, 'schema.json'), JSON.stringify(schema)); args.push('--output-schema', path.join(dir, 'schema.json')); }
+      if (cfg.model) args.push('-m', cfg.model);
+      args.push('--json', '-');
+      let events = 0;
+      const r = await run(bin, args, { input: prompt, timeoutMs, onStdout: (d) => { events += d.length; if (onProgress) onProgress(events); } });
+      const text = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : '';
+      return { ok: r.code === 0 && !!text.trim(), text, r };
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
-    return text;
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+  };
+  let res = await attempt(false);
+  let msg = res.ok ? '' : codexErrorMessage(res.r);
+  // The model set in ~/.codex/config.toml may not be available to ChatGPT accounts.
+  // With no model chosen in Scholareader, retry once with Codex's built-in default.
+  if (!res.ok && !cfg.model && /model_not_found|model is not supported|not supported when using Codex/i.test(msg + res.r.out)) {
+    res = await attempt(true);
+    msg = res.ok ? '' : codexErrorMessage(res.r);
   }
+  if (res.ok) return res.text;
+  const log = msg + ' ' + res.r.err;
+  if (/model_not_found|model is not supported|not supported when using Codex/i.test(log + res.r.out)) {
+    throw new CodexError(`这个模型不能用 ChatGPT 账号调用：${msg}。请在设置里把“模型”清空，或换成 Codex 里能选的模型。`);
+  }
+  if (/not logged in|unauthor|401/i.test(log)) throw new CodexError('Codex 还没有登录，请在设置里点“用 ChatGPT 登录”。');
+  if (/usage limit|rate limit|429/i.test(log)) throw new CodexError('ChatGPT 订阅的用量已达上限，请稍后再试。');
+  throw new CodexError('Codex 运行失败：' + msg);
 }
 
 async function analyze(cfg, pdfBuffer, onProgress) {
