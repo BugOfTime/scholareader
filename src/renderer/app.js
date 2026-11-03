@@ -28,7 +28,9 @@ let occ = {};            // ref number -> anchor ids
 let progressChars = {};
 let settings = { prov: 'codex', model: '', hasKey: false, keyHint: '' };
 let folders = [];          // [{ id, name }]
-let folderId = null;       // folder being viewed (view === 'folder')
+let folderId = null;       // folder being viewed (view === 'folder'), kept while reading a paper opened from it
+let listView = 'lib';      // list view the reader goes back to
+let renaming = false;      // a folder name is being edited in the sidebar
 
 /* ---------- toast ---------- */
 function toast(m) {
@@ -91,7 +93,8 @@ function renderLib() {
       <div class="card-b"><div class="t">${esc(x.title)}</div><div class="a">${x.authors ? '作者：' + esc(x.authors) : esc(x.fileName || '')}</div>
       <span class="tag ${x.sample ? 'new' : ''}">${x.sample ? '示例' : pct ? `已读 ${pct}%` : '未读'}</span>${tags ? `<div class="ftags">${tags}</div>` : ''}</div>
       <button class="fold" data-fold="${esc(x.id)}" aria-label="放进文件夹">文件夹</button>
-      <button class="del" data-del="${esc(x.id)}" aria-label="删除">×</button></div>`;
+      ${folder ? `<button class="del" data-unfile="${esc(x.id)}" aria-label="移出这个文件夹" title="移出这个文件夹（不会删除论文）">×</button>`
+        : `<button class="del" data-del="${esc(x.id)}" aria-label="删除" title="从文献库删除">×</button>`}</div>`;
   }).join('');
 }
 
@@ -100,7 +103,7 @@ async function refreshLibrary(list) {
   if (view !== 'read') renderLib();
   if (current && !current.entry.sample) {
     const e = library.find((p) => p.id === current.id);
-    if (!e) show('lib');
+    if (!e) show(listView);
   }
 }
 
@@ -116,9 +119,22 @@ $('#grid').addEventListener('click', async (e) => {
       return;
     }
     const id = del.dataset.del;
-    if (id === 'sample') { store.set('sr-hide-sample', true); renderLib(); }
-    else { await API.remove(id); }
+    if (id === 'sample') { store.set('sr-hide-sample', true); renderLib(); renderFolders(); }
+    else if (!(await API.remove(id))) { toast('这篇还在处理中，处理完才能删除'); renderLib(); return; }
     toast('已删除');
+    return;
+  }
+  // Inside a folder, × only takes the paper out of that folder.
+  const unfile = e.target.closest('[data-unfile]');
+  if (unfile) {
+    e.stopPropagation();
+    if (!unfile.classList.contains('confirm')) {
+      unfile.classList.add('confirm'); unfile.textContent = '移出？'; unfile.style.width = 'auto'; unfile.style.padding = '0 8px';
+      setTimeout(() => renderLib(), 3000);
+      return;
+    }
+    const x = allEntries().find((p) => p.id === unfile.dataset.unfile), f = folders.find((y) => y.id === folderId);
+    if (x && f && (await setFoldersOf(x, folderIdsOf(x).filter((id) => id !== f.id)))) toast(`已移出“${f.name}”，论文仍在文献库里`);
     return;
   }
   const retry = e.target.closest('[data-retry]');
@@ -129,14 +145,18 @@ $('#grid').addEventListener('click', async (e) => {
 $('#grid').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.classList.contains('card')) openPaper(e.target.dataset.id); });
 
 function show(v) {
+  if (v === 'folder' && !folders.some((f) => f.id === folderId)) v = 'lib';
   view = v;
+  if (v !== 'read') listView = v;
   const reading = v === 'read';
   $('#app').classList.toggle('lib', !reading);
   $('#libView').hidden = reading; $('#scroll').hidden = !reading; $('#topbar').hidden = !reading;
   $('#pop').hidden = true;
   $('#fpop').hidden = true;
   $$('.nav[data-go]').forEach((n) => n.classList.toggle('on', !reading && n.dataset.go === v));
-  if (v !== 'folder') folderId = null;
+  if (v !== 'folder' && v !== 'read') folderId = null;
+  const back = listView === 'folder' ? folders.find((f) => f.id === folderId) : null;
+  $('#backBtn').textContent = '← ' + (back ? back.name : listView === 'recent' ? '最近阅读' : '文献库');
   renderFolders();
   if (!reading) { current = null; renderLib(); }
 }
@@ -146,6 +166,7 @@ function renderFolders() {
   const counts = {};
   for (const x of allEntries()) for (const id of folderIdsOf(x)) counts[id] = (counts[id] || 0) + 1;
   const nav = $('#folderNav');
+  if (renaming) return; // re-rendering would throw away what the user is typing
   if (!folders.length) { nav.innerHTML = '<div class="fempty">按项目建文件夹来整理论文。点上面的 ＋ 新建。</div>'; return; }
   nav.innerHTML = folders.map((f) => `<div class="fitem" data-fid="${esc(f.id)}">
     <button class="nav ${view === 'folder' && folderId === f.id ? 'on' : ''}" data-open-folder="${esc(f.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z"/></svg><span class="fname">${esc(f.name)}</span><span class="n">${counts[f.id] || ''}</span></button>
@@ -153,7 +174,10 @@ function renderFolders() {
 }
 async function loadFolders(list) {
   folders = list || (await API.listFolders());
-  if (view === 'folder' && !folders.some((f) => f.id === folderId)) { show('lib'); return; }
+  if (!folders.some((f) => f.id === folderId)) {
+    if (view === 'folder') { show('lib'); return; }
+    if (listView === 'folder') listView = 'lib';
+  }
   renderFolders();
   if (view !== 'read') renderLib();
   if (!$('#fpop').hidden && fpopFor) renderFolderPop();
@@ -185,9 +209,11 @@ $('#folderNav').addEventListener('click', async (e) => {
     item.innerHTML = `<input class="frename" maxlength="60" aria-label="新名称">`;
     const input = item.querySelector('input');
     input.value = f.name; input.focus(); input.select();
+    renaming = true;
     let done = false;
     const finish = async (save) => {
       if (done) return; done = true;
+      renaming = false;
       const name = input.value.trim();
       if (save && name && name !== f.name) { const r = await API.renameFolder(f.id, name); if (!r.ok) toast(r.error); }
       renderFolders(); renderLib();
@@ -491,7 +517,7 @@ window.addEventListener('drop', async (e) => {
   if (!files.length) { toast('只支持 PDF 文件'); return; }
   if (!aiReady()) { toast('请先在设置里连接 AI'); openSettings(); return; }
   const n = await API.importFiles(files, view === 'folder' && folderId ? [folderId] : []);
-  if (n) { if (view === 'read') show('lib'); toast(`已添加 ${n} 篇，AI 正在处理`); }
+  if (n) { if (view === 'read') show(listView); toast(`已添加 ${n} 篇，AI 正在处理`); }
 });
 
 /* ---------- settings ---------- */
@@ -567,13 +593,13 @@ $('#settingsForm').onsubmit = async (e) => {
 $$('.nav[data-go]').forEach((n) => (n.onclick = () => show(n.dataset.go)));
 $('#searchNav').onclick = () => { show('lib'); $('#libQ').focus(); };
 $('#libQ').addEventListener('input', renderLib);
-$('#backBtn').onclick = () => show('lib');
+$('#backBtn').onclick = () => show(listView);
 $('#pdfBtn').onclick = () => current && API.showPdf(current.id);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (!$('#veil').hidden) $('#veil').hidden = true;
     else if (!$('#fpop').hidden) $('#fpop').hidden = true;
-    else if (view === 'read') show('lib');
+    else if (view === 'read') show(listView);
   }
 });
 

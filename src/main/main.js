@@ -91,7 +91,10 @@ app.whenReady().then(() => {
   ipcMain.handle('folders:delete', folderCall((_e, id) => store.deleteFolder(id)));
   ipcMain.handle('library:setFolders', folderCall((_e, id, ids) => store.setPaperFolders(id, ids)));
   ipcMain.handle('library:retry', (_e, id) => { processPaper(id); return true; });
-  ipcMain.handle('library:remove', (_e, id) => { if (!running.has(id)) { store.remove(id); broadcastLibrary(); } return true; });
+  ipcMain.handle('library:remove', (_e, id) => {
+    if (running.has(id)) return false; // still being processed
+    store.remove(id); broadcastLibrary(); return true;
+  });
   ipcMain.handle('library:touch', (_e, id, patch) => { const t = Number(patch && patch.openedAt); if (t > 0) store.update(id, { openedAt: t }); return true; });
   ipcMain.handle('paper:get', (_e, id) => store.readData(id));
   ipcMain.handle('paper:showPdf', (_e, id) => shell.openPath(store.pdfPath(id)));
